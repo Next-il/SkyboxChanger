@@ -1,7 +1,5 @@
-using System.Text.Json;
-using CounterStrikeSharp.API;
-using CounterStrikeSharp.API.Core;
-using PlayerSettings;
+using Dapper;
+using MySqlConnector;
 
 namespace SkyboxChanger;
 
@@ -20,275 +18,153 @@ public class SkyData
 
 public class Storage
 {
-  private const string SettingsKey = "skyboxchanger_settings";
-  private readonly ISettingsApi? _settingsApi;
-  private readonly Dictionary<ulong, SkyData> _PlayerStorage = new();
+  private string DbConnString { get; set; }
+  private string Table { get; set; } = "";
 
-  public Storage(ISettingsApi? settingsApi)
+  // Dictionary for O(1) lookup by SteamID
+  private readonly Dictionary<ulong, SkyData> _playerStorage = new();
+  private readonly object _storageLock = new();
+
+  private const string UpsertQuery =
+    "INSERT INTO `{0}` (`steamid`, `skybox`, `brightness`, `color`) " +
+    "VALUES (@SteamID, @Skybox, @Brightness, @Color) " +
+    "ON DUPLICATE KEY UPDATE `skybox` = @Skybox, `brightness` = @Brightness, `color` = @Color;";
+
+  public Storage(string host, int port, string user, string password, string database, string tablePrefix)
   {
-    _settingsApi = settingsApi;
+    DbConnString = $"Host={host};Port={port};User={user};Password={password};Database={database};AllowPublicKeyRetrieval=true;";
+    Table = tablePrefix + "playerstorage";
+
+    using MySqlConnection connection = ConnectAsync().GetAwaiter().GetResult();
+    connection.Execute(
+      $"CREATE TABLE IF NOT EXISTS `{Table}` (" +
+      "`steamid` BIGINT UNSIGNED NOT NULL, " +
+      "`skybox` VARCHAR(255) NOT NULL, " +
+      "`brightness` FLOAT DEFAULT 1.0, " +
+      "`color` INT NOT NULL, " +
+      "PRIMARY KEY (`steamid`)) ENGINE = InnoDB;"
+    );
+    Load();
   }
 
-  public async Task<SkyData> GetPlayerSkydataAsync(ulong steamid)
+  public async Task<MySqlConnection> ConnectAsync()
   {
-    if (_PlayerStorage.TryGetValue(steamid, out var cachedData))
-    {
-      if (string.IsNullOrEmpty(cachedData.Skybox) && cachedData.Brightness == 1.0f && cachedData.Color == int.MaxValue)
-      {
-        _PlayerStorage.Remove(steamid);
-      }
-      else
-      {
-        return cachedData;
-      }
-    }
-
-    // Try to load from PlayerSettingsApi
-    var player = await GetPlayerBySteamIdAsync(steamid);
-    if (player != null && _settingsApi != null)
-    {
-      var jsonValue = await GetPlayerSettingsValueAsync(player, SettingsKey, "{}");
-
-      if (!string.IsNullOrWhiteSpace(jsonValue) && jsonValue != "{}")
-      {
-        try
-        {
-          // Handle escaped JSON strings
-          string unescapedJson = jsonValue;
-          if (jsonValue.Contains("\\\""))
-          {
-            if (jsonValue.StartsWith("\"") && jsonValue.EndsWith("\""))
-            {
-              try
-              {
-                unescapedJson = JsonSerializer.Deserialize<string>(jsonValue) ?? "{}";
-              }
-              catch
-              {
-                unescapedJson = jsonValue.Trim('"').Replace("\\\"", "\"").Replace("\\\\", "\\");
-              }
-            }
-            else
-            {
-              try
-              {
-                var wrappedJson = $"\"{jsonValue}\"";
-                unescapedJson = JsonSerializer.Deserialize<string>(wrappedJson) ?? "{}";
-              }
-              catch
-              {
-                unescapedJson = jsonValue.Replace("\\\\", "\u0001").Replace("\\\"", "\"").Replace("\u0001", "\\");
-              }
-            }
-          }
-          else if (jsonValue.StartsWith("\"") && jsonValue.EndsWith("\""))
-          {
-            try
-            {
-              unescapedJson = JsonSerializer.Deserialize<string>(jsonValue) ?? "{}";
-            }
-            catch
-            {
-              unescapedJson = jsonValue.Trim('"');
-            }
-          }
-
-          if (!string.IsNullOrWhiteSpace(unescapedJson) && unescapedJson != "{}")
-          {
-            // Deserialize to anonymous type first, then create SkyData
-            var deserialized = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(unescapedJson);
-            if (deserialized != null)
-            {
-              var data = new SkyData
-              {
-                SteamID = steamid,
-                Skybox = deserialized.TryGetValue("Skybox", out var skyboxEl) ? skyboxEl.GetString() ?? "" : "",
-                Brightness = deserialized.TryGetValue("Brightness", out var brightnessEl) ? brightnessEl.GetSingle() : 1.0f,
-                Color = deserialized.TryGetValue("Color", out var colorEl) ? colorEl.GetInt32() : int.MaxValue
-              };
-              _PlayerStorage[steamid] = data;
-              return data;
-            }
-          }
-        }
-        catch (Exception ex)
-        {
-          Console.WriteLine($"[SkyboxChanger] Failed to deserialize settings for player {steamid}: {ex.Message}");
-        }
-      }
-    }
-
-    // Return default data if not found
-    var defaultData = new SkyData { SteamID = steamid };
-    _PlayerStorage[steamid] = defaultData;
-    return defaultData;
+    MySqlConnection connection = new(DbConnString);
+    await connection.OpenAsync();
+    return connection;
   }
 
-  public SkyData GetPlayerSkydata(ulong steamid)
+  public void Load()
   {
-    if (_PlayerStorage.TryGetValue(steamid, out var cachedData))
-    {
-      return cachedData;
-    }
+    using MySqlConnection connection = ConnectAsync().GetAwaiter().GetResult();
+    var result = connection.Query<SkyData>($"SELECT * FROM `{Table}`;");
 
-    var defaultData = new SkyData { SteamID = steamid };
-    _PlayerStorage[steamid] = defaultData;
-    return defaultData;
+    lock (_storageLock)
+    {
+      _playerStorage.Clear();
+      foreach (var data in result)
+      {
+        _playerStorage[data.SteamID] = data;
+      }
+    }
   }
 
-  public async Task SaveAsync(ulong? steamid = null)
+  /// <summary>Loads (or refreshes) a single player's data from the database.</summary>
+  public async Task LoadPlayerAsync(ulong steamid)
   {
-    if (_settingsApi == null)
-    {
-      return;
-    }
+    using MySqlConnection connection = await ConnectAsync();
+    var result = await connection.QueryFirstOrDefaultAsync<SkyData>(
+      $"SELECT * FROM `{Table}` WHERE `steamid` = @SteamID;",
+      new { SteamID = (long)steamid }
+    );
 
-    if (steamid == null)
+    lock (_storageLock)
     {
-      // Save all cached players
-      foreach (var kvp in _PlayerStorage)
+      if (result != null)
       {
-        await SavePlayerDataAsync(kvp.Key, kvp.Value);
+        _playerStorage[result.SteamID] = result;
       }
+      // If no row exists yet, leave the cache empty — GetPlayerSkydata will create a default entry.
     }
-    else
+  }
+
+  /// <summary>Removes a player's entry from the in-memory cache.</summary>
+  public void InvalidateCache(ulong steamid)
+  {
+    lock (_storageLock)
     {
-      if (_PlayerStorage.TryGetValue(steamid.Value, out var data))
-      {
-        await SavePlayerDataAsync(steamid.Value, data);
-      }
+      _playerStorage.Remove(steamid);
     }
   }
 
   public void Save(ulong? steamid = null)
   {
-    // Synchronous wrapper for backward compatibility
-    Task.Run(async () => await SaveAsync(steamid));
+    if (steamid == null)
+    {
+      List<SkyData> snapshot;
+      lock (_storageLock)
+      {
+        snapshot = new List<SkyData>(_playerStorage.Values);
+      }
+      foreach (var data in snapshot)
+      {
+        _ = SaveOneAsync(data);
+      }
+    }
+    else
+    {
+      SkyData? data;
+      lock (_storageLock)
+      {
+        _playerStorage.TryGetValue(steamid.Value, out data);
+      }
+      if (data != null)
+      {
+        _ = SaveOneAsync(data);
+      }
+    }
   }
 
-  private async Task SavePlayerDataAsync(ulong steamid, SkyData data)
+  /// <summary>Saves a single player's data and returns an awaitable Task.</summary>
+  public async Task SaveAsync(ulong steamid)
   {
-    if (_settingsApi == null)
+    SkyData? data;
+    lock (_storageLock)
     {
-      return;
+      _playerStorage.TryGetValue(steamid, out data);
     }
 
-    var player = await GetPlayerBySteamIdAsync(steamid);
-    if (player == null)
-    {
-      return;
-    }
+    if (data == null) return;
 
+    using MySqlConnection connection = await ConnectAsync();
+    await connection.ExecuteAsync(string.Format(UpsertQuery, Table), data);
+  }
+
+  private async Task SaveOneAsync(SkyData data)
+  {
     try
     {
-      // Create a DTO without SteamID for serialization
-      var dataToSave = new
-      {
-        Skybox = data.Skybox,
-        Brightness = data.Brightness,
-        Color = data.Color
-      };
-
-      var jsonOptions = new JsonSerializerOptions
-      {
-        WriteIndented = false
-      };
-
-      var json = JsonSerializer.Serialize(dataToSave, jsonOptions);
-
-      var setValueTask = new TaskCompletionSource<bool>();
-      var playerSlot = player.Slot;
-      Server.NextFrame(() =>
-      {
-        try
-        {
-          var currentPlayer = Utilities.GetPlayerFromSlot(playerSlot);
-          if (currentPlayer != null && currentPlayer.IsValid && !currentPlayer.IsBot)
-          {
-            _settingsApi.SetPlayerSettingsValue(currentPlayer, SettingsKey, json);
-            setValueTask.SetResult(true);
-          }
-          else
-          {
-            setValueTask.SetResult(false);
-          }
-        }
-        catch (Exception ex)
-        {
-          Console.WriteLine($"[SkyboxChanger] Failed to save settings for player {steamid}: {ex.Message}");
-          setValueTask.SetException(ex);
-        }
-      });
-
-      await setValueTask.Task;
+      using MySqlConnection connection = await ConnectAsync();
+      await connection.ExecuteAsync(string.Format(UpsertQuery, Table), data);
     }
     catch (Exception ex)
     {
-      Console.WriteLine($"[SkyboxChanger] Failed to serialize settings for player {steamid}: {ex.Message}");
+      Console.Error.WriteLine($"[SkyboxChanger] DB save error for {data.SteamID}: {ex.Message}");
     }
   }
 
-  private async Task<string> GetPlayerSettingsValueAsync(CCSPlayerController player, string key, string defaultValue)
+  public SkyData GetPlayerSkydata(ulong steamid)
   {
-    if (_settingsApi == null)
+    lock (_storageLock)
     {
-      return defaultValue;
+      if (_playerStorage.TryGetValue(steamid, out var data))
+      {
+        return data;
+      }
+
+      var newData = new SkyData { SteamID = steamid };
+      _playerStorage[steamid] = newData;
+      return newData;
     }
-
-    var playerSlot = player.Slot;
-    var getValueTask = new TaskCompletionSource<string>();
-
-    Server.NextFrame(() =>
-    {
-      try
-      {
-        var currentPlayer = Utilities.GetPlayerFromSlot(playerSlot);
-        if (currentPlayer != null && currentPlayer.IsValid && !currentPlayer.IsBot)
-        {
-          var value = _settingsApi.GetPlayerSettingsValue(currentPlayer, key, defaultValue);
-          getValueTask.SetResult(value);
-        }
-        else
-        {
-          getValueTask.SetResult(defaultValue);
-        }
-      }
-      catch (Exception ex)
-      {
-        Console.WriteLine($"[SkyboxChanger] Failed to get settings value: {ex.Message}");
-        getValueTask.SetResult(defaultValue);
-      }
-    });
-
-    return await getValueTask.Task;
-  }
-
-  public void InvalidateCache(ulong steamid)
-  {
-    _PlayerStorage.Remove(steamid);
-  }
-
-  private async Task<CCSPlayerController?> GetPlayerBySteamIdAsync(ulong steamId)
-  {
-    if (steamId == 0)
-    {
-      return null;
-    }
-
-    var tcs = new TaskCompletionSource<CCSPlayerController?>();
-    Server.NextFrame(() =>
-    {
-      try
-      {
-        var player = Utilities.GetPlayers().FirstOrDefault(p => p.IsValid && p.AuthorizedSteamID?.SteamId64 == steamId);
-        tcs.SetResult(player);
-      }
-      catch (Exception ex)
-      {
-        tcs.SetException(ex);
-      }
-    });
-
-    return await tcs.Task;
   }
 }

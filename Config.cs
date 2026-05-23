@@ -3,28 +3,43 @@ using CounterStrikeSharp.API.Core;
 
 public class Skybox
 {
-  [JsonPropertyName("name")]
-  public string Name { get; set; } = "";
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = "";
 
-  [JsonPropertyName("material")]
-  public string Material { get; set; } = "";
-  [JsonPropertyName("brightness")]
-  public float? Brightness { get; set; } = null;
+    [JsonPropertyName("material")]
+    public string Material { get; set; } = "";
+    [JsonPropertyName("brightness")]
+    public float? Brightness { get; set; } = null;
 
-  [JsonPropertyName("color")]
-  public string? Color { get; set; } = null;
+    [JsonPropertyName("color")]
+    public string? Color { get; set; } = null;
 
-  [JsonPropertyName("permissions")]
-  public string[]? Permissions { get; set; } = null;
-  [JsonPropertyName("permissionsOr")]
-  public string[]? PermissionsOr { get; set; } = null;
+    [JsonPropertyName("permissions")]
+    public string[]? Permissions { get; set; } = null;
+    [JsonPropertyName("permissionsOr")]
+    public string[]? PermissionsOr { get; set; } = null;
 
+}
+
+public class DatabaseConfig
+{
+
+    public string Host { get; set; } = "127.0.0.1";
+
+    public int Port { get; set; } = 3306;
+    public string User { get; set; } = "root";
+
+    public string Password { get; set; } = "";
+
+    public string Database { get; set; } = "cs2";
+
+    public string TablePrefix { get; set; } = "cs2_skyboxchanger_";
 }
 
 public class SkyboxConfig : BasePluginConfig
 {
-  [JsonPropertyName("Skyboxs")]
-  public Dictionary<string, Skybox> Skyboxs { get; set; } = new() {
+    [JsonPropertyName("Skyboxs")]
+    public Dictionary<string, Skybox> Skyboxs { get; set; } = new() {
     { "cs_italy_s2_skybox_2", new Skybox { Name = "cs_italy_s2_skybox_2", Material = "materials/skybox/cs_italy_s2_skybox_2.vmat" } },
     { "cs_italy_s2_skybox_2_fog", new Skybox { Name = "cs_italy_s2_skybox_2_fog", Material = "materials/skybox/cs_italy_s2_skybox_2_fog.vmat" } },
     { "cs_italy_s2_skybox_2_lightning", new Skybox { Name = "cs_italy_s2_skybox_2_lightning", Material = "materials/skybox/cs_italy_s2_skybox_2_lighting.vmat" } },
@@ -44,13 +59,16 @@ public class SkyboxConfig : BasePluginConfig
     { "sky_overcast_01", new Skybox { Name = "sky_overcast_01", Material = "materials/skybox/sky_overcast_01.vmat" } },
   };
 
-  [JsonPropertyName("MapDefault")]
-  public Dictionary<string, string>? MapDefault { get; set; } = new();
+    [JsonPropertyName("Database")]
+    public DatabaseConfig Database { get; set; } = new();
 
-  [JsonPropertyName("MenuPermission")]
-  public string MenuPermission { get; set; } = "@skybox/change";
+    [JsonPropertyName("MapDefault")]
+    public Dictionary<string, string>? MapDefault { get; set; } = new();
+
+    [JsonPropertyName("MenuPermission")]
+    public string MenuPermission { get; set; } = "@skybox/change";
 
 
-  [JsonPropertyName("ConfigVersion")]
-  public override int Version { get; set; } = 3;
+    [JsonPropertyName("ConfigVersion")]
+    public override int Version { get; set; } = 3;
 }

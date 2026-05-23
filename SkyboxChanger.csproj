@@ -18,7 +18,8 @@
       <IncludeAssets>compile</IncludeAssets>
     </PackageReference>
     <Reference Include="MenuManagerApi"><HintPath>MenuManagerApi.dll</HintPath></Reference>
-    <Reference Include="PlayerSettingsApi"><HintPath>PlayerSettingsApi.dll</HintPath></Reference>
+    <PackageReference Include="Dapper" Version="2.1.35" />
+    <PackageReference Include="MySQLConnector" Version="2.4.0" />
   </ItemGroup>
 
   <ItemGroup>
@@ -29,6 +30,8 @@
   <Target Name="PostBuild" AfterTargets="Build">
 		<Copy SourceFiles="@(LangFiles)" DestinationFolder="$(OutputPath)\lang" />
 		<Copy SourceFiles="@(GameDataFiles)" DestinationFolder="$(GameDataPath)" />
+    <Copy SourceFiles="$(NuGetPackageRoot)\dapper\2.1.35\lib\net7.0\Dapper.dll" DestinationFolder="$(OutputPath)" />
+    <Copy SourceFiles="$(NuGetPackageRoot)\mysqlconnector\2.4.0\lib\net8.0\MySqlConnector.dll" DestinationFolder="$(OutputPath)" />
 	</Target>
 
 </Project>

@@ -5,139 +5,145 @@ namespace SkyboxChanger;
 
 public class Service
 {
-  public Storage _Storage { get; set; }
+  private readonly Storage _storage;
+  private readonly SkyboxChanger _plugin;
 
-  private SkyboxChanger _Plugin { get; set; }
-
-  public Service(SkyboxChanger plugin, PlayerSettings.ISettingsApi? settingsApi)
+  public Service(SkyboxChanger plugin, string host, int port, string user, string password, string database, string tablePrefix)
   {
-    _Plugin = plugin;
-    _Storage = new Storage(settingsApi);
+    _plugin = plugin;
+    _storage = new Storage(host, port, user, password, database, tablePrefix);
   }
+
+  // ── Skybox ──────────────────────────────────────────────────────────────────
 
   public bool SetSkybox(CCSPlayerController player, string index)
   {
-    if (_Plugin.SpectatorManager.IsPlayerInSpectatorMode(player.Slot))
-    {
+    if (_plugin.SpectatorManager.IsPlayerInSpectatorMode(player.Slot))
       return false;
-    }
 
-    var skyData = _Storage.GetPlayerSkydata(player.SteamID);
+    var skyData = _storage.GetPlayerSkydata(player.SteamID);
     skyData.Skybox = index;
-    Skybox skybox = _Plugin.Config.Skyboxs[index];
+
+    Skybox skybox = _plugin.Config.Skyboxs[index];
+
     if (skybox.Brightness != null)
     {
-      _Plugin.EnvManager.SetBrightness(player.Slot, skybox.Brightness.Value);
+      _plugin.EnvManager.SetBrightness(player.Slot, skybox.Brightness.Value);
       skyData.Brightness = skybox.Brightness.Value;
     }
+
     if (skybox.Color != null)
     {
-      var colorData = skybox.Color.Split(" ");
-      if (colorData.Length == 4)
+      var parts = skybox.Color.Split(' ');
+      if (parts.Length == 4)
       {
-        var r = int.Parse(colorData[0]);
-        var g = int.Parse(colorData[1]);
-        var b = int.Parse(colorData[2]);
-        var a = int.Parse(colorData[3]);
-        _Plugin.EnvManager.SetTintColor(player.Slot, Color.FromArgb(a, r, g, b));
-        skyData.Color = Color.FromArgb(a, r, g, b).ToArgb();
+        var r = int.Parse(parts[0]);
+        var g = int.Parse(parts[1]);
+        var b = int.Parse(parts[2]);
+        var a = int.Parse(parts[3]);
+        var color = Color.FromArgb(a, r, g, b);
+        _plugin.EnvManager.SetTintColor(player.Slot, color);
+        skyData.Color = color.ToArgb();
       }
     }
 
-    // Save immediately after change
-    _ = _Storage.SaveAsync(player.SteamID);
-
-    return _Plugin.EnvManager.SetSkybox(player.Slot, skybox);
+    _ = _storage.SaveAsync(player.SteamID);
+    return _plugin.EnvManager.SetSkybox(player.Slot, skybox);
   }
 
   public void SetBrightness(CCSPlayerController player, float brightness)
   {
-    if (_Plugin.SpectatorManager.IsPlayerInSpectatorMode(player.Slot))
-    {
+    if (_plugin.SpectatorManager.IsPlayerInSpectatorMode(player.Slot))
       return;
-    }
 
-    var skyData = _Storage.GetPlayerSkydata(player.SteamID);
+    var skyData = _storage.GetPlayerSkydata(player.SteamID);
     skyData.Brightness = brightness;
-    _Plugin.EnvManager.SetBrightness(player.Slot, brightness);
-
-    // Save immediately after change
-    _ = _Storage.SaveAsync(player.SteamID);
+    _plugin.EnvManager.SetBrightness(player.Slot, brightness);
+    _ = _storage.SaveAsync(player.SteamID);
   }
 
   public void SetTintColor(CCSPlayerController player, Color color)
   {
-    if (_Plugin.SpectatorManager.IsPlayerInSpectatorMode(player.Slot))
-    {
+    if (_plugin.SpectatorManager.IsPlayerInSpectatorMode(player.Slot))
       return;
-    }
 
-    var skyData = _Storage.GetPlayerSkydata(player.SteamID);
+    var skyData = _storage.GetPlayerSkydata(player.SteamID);
     skyData.Color = color.ToArgb();
-    _Plugin.EnvManager.SetTintColor(player.Slot, color);
-
-    // Save immediately after change
-    _ = _Storage.SaveAsync(player.SteamID);
+    _plugin.EnvManager.SetTintColor(player.Slot, color);
+    _ = _storage.SaveAsync(player.SteamID);
   }
+
+  // ── Getters ─────────────────────────────────────────────────────────────────
 
   public Skybox? GetPlayerSkybox(CCSPlayerController player)
   {
-    var skyboxData = _Storage.GetPlayerSkydata(player.SteamID);
-    return _Plugin.Config.Skyboxs.GetValueOrDefault(skyboxData.Skybox);
+    var data = _storage.GetPlayerSkydata(player.SteamID);
+    return _plugin.Config.Skyboxs.GetValueOrDefault(data.Skybox);
   }
 
   public float GetPlayerBrightness(CCSPlayerController player)
   {
-    return _Storage.GetPlayerSkydata(player.SteamID).Brightness;
+    return _storage.GetPlayerSkydata(player.SteamID).Brightness;
   }
 
   public Color GetPlayerColor(CCSPlayerController player)
   {
-    return Color.FromArgb(_Storage.GetPlayerSkydata(player.SteamID).Color);
+    return Color.FromArgb(_storage.GetPlayerSkydata(player.SteamID).Color);
   }
 
   public Skybox? GetMapDefaultSkybox(string map)
   {
-    var maps = _Plugin.Config.MapDefault;
+    var maps = _plugin.Config.MapDefault;
     if (maps == null) return null;
-    if (maps.ContainsKey(map)) return _Plugin.Config.Skyboxs[maps[map]];
-    if (maps.ContainsKey("*")) return _Plugin.Config.Skyboxs[maps["*"]];
+    if (maps.TryGetValue(map, out var key)) return _plugin.Config.Skyboxs.GetValueOrDefault(key);
+    if (maps.TryGetValue("*", out var wildcard)) return _plugin.Config.Skyboxs.GetValueOrDefault(wildcard);
     return null;
   }
 
-  public void Save(ulong? steamid = null)
-  {
-    _Storage.Save(steamid);
-  }
+  // ── Apply stored settings to a player ───────────────────────────────────────
 
   public void ApplyPlayerSettings(CCSPlayerController player)
   {
-    if (_Plugin.SpectatorManager.IsPlayerInSpectatorMode(player.Slot))
-    {
+    if (_plugin.SpectatorManager.IsPlayerInSpectatorMode(player.Slot))
       return;
+
+    var skyData = _storage.GetPlayerSkydata(player.SteamID);
+
+    if (!string.IsNullOrEmpty(skyData.Skybox) && _plugin.Config.Skyboxs.TryGetValue(skyData.Skybox, out var skybox))
+    {
+      _plugin.EnvManager.SetSkybox(player.Slot, skybox);
     }
 
-    var skyData = _Storage.GetPlayerSkydata(player.SteamID);
-    if (!string.IsNullOrEmpty(skyData.Skybox))
-    {
-      if (_Plugin.Config.Skyboxs.ContainsKey(skyData.Skybox))
-      {
-        var skybox = _Plugin.Config.Skyboxs[skyData.Skybox];
-        _Plugin.EnvManager.SetSkybox(player.Slot, skybox);
-      }
-      else
-      {
-      }
-    }
-    _Plugin.EnvManager.SetBrightness(player.Slot, skyData.Brightness);
+    _plugin.EnvManager.SetBrightness(player.Slot, skyData.Brightness);
+
     if (skyData.Color != int.MaxValue)
     {
-      var color = Color.FromArgb(skyData.Color);
-      _Plugin.EnvManager.SetTintColor(player.Slot, color);
+      _plugin.EnvManager.SetTintColor(player.Slot, Color.FromArgb(skyData.Color));
     }
-    else
-    {
-      Console.WriteLine($"[SkyboxChanger] Color is int.MaxValue, skipping color application");
-    }
+  }
+
+  // ── Persistence ─────────────────────────────────────────────────────────────
+
+  public void Save(ulong? steamid = null)
+  {
+    _storage.Save(steamid);
+  }
+
+  public Task SaveAsync(ulong steamid)
+  {
+    return _storage.SaveAsync(steamid);
+  }
+
+  /// <summary>Removes the player's data from the in-memory cache so the next
+  /// access forces a fresh database load.</summary>
+  public void InvalidateCache(ulong steamid)
+  {
+    _storage.InvalidateCache(steamid);
+  }
+
+  /// <summary>Loads a single player's row from the database into the cache.</summary>
+  public Task LoadPlayerAsync(ulong steamid)
+  {
+    return _storage.LoadPlayerAsync(steamid);
   }
 }

@@ -13,14 +13,13 @@ using CounterStrikeSharp.API.Modules.UserMessages;
 using CounterStrikeSharp.API.Modules.Utils;
 using Microsoft.Extensions.Logging;
 using MenuManager;
-using PlayerSettings;
 
 namespace SkyboxChanger;
 
 public class SkyboxChanger : BasePlugin, IPluginConfig<SkyboxConfig>
 {
   public override string ModuleName => "Skybox Changer";
-  public override string ModuleVersion => "1.4.0";
+  public override string ModuleVersion => "1.5.0";
   public override string ModuleAuthor => "samyyc (fork by luca.uy)";
 
   public SkyboxConfig Config { get; set; } = new();
@@ -34,10 +33,6 @@ public class SkyboxChanger : BasePlugin, IPluginConfig<SkyboxConfig>
   // MenuManager capability
   private IMenuApi? _menuApi;
   private readonly PluginCapability<IMenuApi?> _menuCapability = new("menu:nfcore");
-
-  // PlayerSettings capability
-  private ISettingsApi? _settingsApi;
-  private readonly PluginCapability<ISettingsApi?> _settingsCapability = new("settings:nfcore");
 
   private static SkyboxChanger? _Instance { get; set; }
 
@@ -147,10 +142,7 @@ public class SkyboxChanger : BasePlugin, IPluginConfig<SkyboxConfig>
         }
         if (player.AuthorizedSteamID != null)
         {
-          if (Service?._Storage != null)
-          {
-            Service._Storage.InvalidateCache(player.AuthorizedSteamID.SteamId64);
-          }
+          Service?.InvalidateCache(player.AuthorizedSteamID.SteamId64);
           _ = LoadPlayerSettingsOnConnectAndInitialize(player.AuthorizedSteamID.SteamId64, player);
         }
         else
@@ -168,7 +160,7 @@ public class SkyboxChanger : BasePlugin, IPluginConfig<SkyboxConfig>
       if (player != null && player.AuthorizedSteamID != null && Service != null)
       {
         Service.Save(player.AuthorizedSteamID.SteamId64);
-        Service._Storage?.InvalidateCache(player.AuthorizedSteamID.SteamId64);
+        Service.InvalidateCache(player.AuthorizedSteamID.SteamId64);
       }
     });
     Helper.Initialize();
@@ -200,77 +192,6 @@ public class SkyboxChanger : BasePlugin, IPluginConfig<SkyboxConfig>
       });
 
       return;
-    }
-
-    _settingsApi = _settingsCapability.Get();
-
-    if (_settingsApi == null)
-    {
-      Console.ForegroundColor = ConsoleColor.Yellow;
-      Console.WriteLine("[SkyboxChanger] WARNING: PlayerSettings API not found!");
-      Console.WriteLine("[SkyboxChanger] PlayerSettings is recommended for this plugin to save player preferences.");
-      Console.WriteLine("[SkyboxChanger] Please install PlayerSettingsCS2 from: https://github.com/NickFox007/PlayerSettingsCS2");
-      Console.WriteLine("[SkyboxChanger] Plugin will continue to work but settings won't be saved.");
-      Console.ResetColor();
-    }
-    else
-    {
-      // Reinitialize Service with settings API
-      Service = new Service(this, _settingsApi);
-    }
-  }
-
-  private async Task LoadPlayerSettingsOnConnectAndInitialize(ulong steamId, CCSPlayerController player)
-  {
-    if (_settingsApi == null)
-    {
-      Server.NextFrame(() => EnvManager.InitializeSkyboxForPlayer(player));
-      return;
-    }
-
-    if (steamId == 0)
-    {
-      Server.NextFrame(() => EnvManager.InitializeSkyboxForPlayer(player));
-      return;
-    }
-
-    if (Service == null || Service._Storage == null)
-    {
-      Server.NextFrame(() => EnvManager.InitializeSkyboxForPlayer(player));
-      return;
-    }
-
-    try
-    {
-      var currentPlayer = Utilities.GetPlayers().FirstOrDefault(p => p.IsValid && p.AuthorizedSteamID?.SteamId64 == steamId);
-      if (currentPlayer != null)
-      {
-        var skyData = await Service._Storage.GetPlayerSkydataAsync(steamId);
-        Server.NextFrame(() =>
-        {
-          EnvManager.InitializeSkyboxForPlayer(currentPlayer);
-          Server.NextFrame(() =>
-          {
-            Server.NextFrame(() =>
-            {
-              var finalPlayer = Utilities.GetPlayers().FirstOrDefault(p => p.IsValid && p.AuthorizedSteamID?.SteamId64 == steamId);
-              if (finalPlayer != null && finalPlayer.IsValid)
-              {
-                Service.ApplyPlayerSettings(finalPlayer);
-              }
-            });
-          });
-        });
-      }
-      else
-      {
-        Server.NextFrame(() => EnvManager.InitializeSkyboxForPlayer(player));
-      }
-    }
-    catch (Exception ex)
-    {
-      Logger.LogError($"[SkyboxChanger] Failed to load settings for player {steamId}: {ex.Message}");
-      Server.NextFrame(() => EnvManager.InitializeSkyboxForPlayer(player));
     }
   }
 
@@ -309,19 +230,25 @@ public class SkyboxChanger : BasePlugin, IPluginConfig<SkyboxConfig>
   public void OnConfigParsed(SkyboxConfig config)
   {
     Config = config;
-    if (Config.Version == 1 || Config.Version == 2)
+    Service = new Service(this, Config.Database.Host, Config.Database.Port, Config.Database.User, Config.Database.Password, Config.Database.Database, Config.Database.TablePrefix);
+  }
+
+  private async Task LoadPlayerSettingsOnConnectAndInitialize(ulong steamId64, CCSPlayerController player)
+  {
+    try
     {
-      throw new Exception("Please update your config version. Database configuration has been removed. PlayerSettings API is now used instead.");
+      await Service.LoadPlayerAsync(steamId64);
     }
-    // Service will be initialized in OnAllPluginsLoaded with settings API
-    if (_settingsApi != null)
+    catch (Exception ex)
     {
-      Service = new Service(this, _settingsApi);
+      Logger.LogError("[SkyboxChanger] Failed to load settings for {SteamId}: {Error}", steamId64, ex.Message);
     }
-    else
+
+    Server.NextFrame(() =>
     {
-      Service = new Service(this, null);
-    }
+      if (!player.IsValid) return;
+      EnvManager.InitializeSkyboxForPlayer(player);
+    });
   }
 
   public void OnServerPrecacheResources(ResourceManifest manifest)
