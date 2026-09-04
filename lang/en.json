@@ -1,5 +1,5 @@
 {
-  "prefix": "{lightred}[{blue}SkyboxChanger{lightred}] {default}",
+  "prefix": "{lime}➜ {grey}Next-il {lime}|{default} ",
   "no.permission": "{lightred}You do not have permission to use this command",
   "menu.title": "SkyboxChanger",
   "menu.skybox": "Select skybox",

@@ -14,8 +14,14 @@ public class EnvManager
   public string? CubemapFogPointedSkyName { get; set; } = null;
 
   public Dictionary<int, int> SpawnedSkyboxes = new();
+
+  /// <summary>Spawn group the map's own entities live in. Captured from the map's env_sky
+  /// before it is removed, because maps without a sky_camera have no other source for it and
+  /// the keyvalue spawn path needs one.</summary>
+  public uint MapSpawnGroupHandle { get; set; } = 0;
   public unsafe void InitializeSkyboxForPlayer(CCSPlayerController player)
   {
+    if (Helper.MaterialApplyBroken) return;
     Helper.SpawnSkybox(player.Slot, CubemapFogPointedSkyName ?? "", DefaultMaterial);
 
     Skybox? skybox = SkyboxChanger.GetInstance().Service.GetPlayerSkybox(player);
@@ -38,9 +44,12 @@ public class EnvManager
     if (!SpawnedSkyboxes.ContainsKey(slot)) return;
     var index = SpawnedSkyboxes[slot];
     CEnvSky sky = Utilities.GetEntityFromIndex<CEnvSky>(index)!;
-    nint ptr = Helper.FindMaterialByPath("materials/notexist.vmat");
-    Unsafe.Write((void*)sky.SkyMaterial.Handle, ptr);
-    Unsafe.Write((void*)sky.SkyMaterialLightingOnly.Handle, ptr);
+    nint ptr = Helper.FindMaterialByPath("materials/notexist.vmat", false);
+    if (ptr != 0)
+    {
+      Unsafe.Write((void*)sky.SkyMaterial.Handle, ptr);
+      Unsafe.Write((void*)sky.SkyMaterialLightingOnly.Handle, ptr);
+    }
     SpawnedSkyboxes.Remove(slot);
     sky.Remove();
   }
@@ -49,13 +58,14 @@ public class EnvManager
   {
     DefaultMaterial = "";
     CubemapFogPointedSkyName = null;
+    MapSpawnGroupHandle = 0;
     SkyboxChanger.GetInstance().Config.Skyboxs.Remove("");
     SpawnedSkyboxes.Clear();
   }
 
   public bool SetSkybox(int slot, Skybox skybox)
   {
-    return Helper.ChangeSkybox(slot, skybox);
+    return Helper.RespawnSkybox(slot, skybox);
   }
 
   public void SetBrightness(int slot, float value)

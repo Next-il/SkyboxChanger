@@ -1,5 +1,6 @@
 using System.Drawing;
 using CounterStrikeSharp.API.Core;
+using Microsoft.Extensions.Logging;
 
 namespace SkyboxChanger;
 
@@ -18,13 +19,23 @@ public class Service
 
   public bool SetSkybox(CCSPlayerController player, string index)
   {
+    _plugin.Logger.LogInformation("[SkyboxChanger] SetSkybox called: slot={Slot} steamId={SteamId} index='{Index}'", player.Slot, player.SteamID, index);
+
     if (_plugin.SpectatorManager.IsPlayerInSpectatorMode(player.Slot))
+    {
+      _plugin.Logger.LogWarning("[SkyboxChanger] SetSkybox aborted: player slot={Slot} is in spectator mode", player.Slot);
       return false;
+    }
 
     var skyData = _storage.GetPlayerSkydata(player.SteamID);
     skyData.Skybox = index;
 
-    Skybox skybox = _plugin.Config.Skyboxs[index];
+    if (!_plugin.Config.Skyboxs.TryGetValue(index, out var skybox))
+    {
+      _plugin.Logger.LogError("[SkyboxChanger] SetSkybox failed: skybox key '{Index}' not found in Config.Skyboxs (available keys: {Keys})", index, string.Join(", ", _plugin.Config.Skyboxs.Keys));
+      return false;
+    }
+    _plugin.Logger.LogInformation("[SkyboxChanger] Resolved skybox '{Index}' -> material='{Material}'", index, skybox.Material);
 
     if (skybox.Brightness != null)
     {
@@ -48,7 +59,16 @@ public class Service
     }
 
     _ = _storage.SaveAsync(player.SteamID);
-    return _plugin.EnvManager.SetSkybox(player.Slot, skybox);
+    var result = _plugin.EnvManager.SetSkybox(player.Slot, skybox);
+    if (!result)
+    {
+      _plugin.Logger.LogError("[SkyboxChanger] SetSkybox: EnvManager.SetSkybox returned false for slot={Slot} index='{Index}' material='{Material}'", player.Slot, index, skybox.Material);
+    }
+    else
+    {
+      _plugin.Logger.LogInformation("[SkyboxChanger] SetSkybox succeeded for slot={Slot} index='{Index}'", player.Slot, index);
+    }
+    return result;
   }
 
   public void SetBrightness(CCSPlayerController player, float brightness)
