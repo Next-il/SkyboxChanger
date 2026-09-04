@@ -19,11 +19,8 @@ public class Service
 
   public bool SetSkybox(CCSPlayerController player, string index)
   {
-    _plugin.Logger.LogInformation("[SkyboxChanger] SetSkybox called: slot={Slot} steamId={SteamId} index='{Index}'", player.Slot, player.SteamID, index);
-
     if (_plugin.SpectatorManager.IsPlayerInSpectatorMode(player.Slot))
     {
-      _plugin.Logger.LogWarning("[SkyboxChanger] SetSkybox aborted: player slot={Slot} is in spectator mode", player.Slot);
       return false;
     }
 
@@ -35,7 +32,6 @@ public class Service
       _plugin.Logger.LogError("[SkyboxChanger] SetSkybox failed: skybox key '{Index}' not found in Config.Skyboxs (available keys: {Keys})", index, string.Join(", ", _plugin.Config.Skyboxs.Keys));
       return false;
     }
-    _plugin.Logger.LogInformation("[SkyboxChanger] Resolved skybox '{Index}' -> material='{Material}'", index, skybox.Material);
 
     if (skybox.Brightness != null)
     {
@@ -62,11 +58,7 @@ public class Service
     var result = _plugin.EnvManager.SetSkybox(player.Slot, skybox);
     if (!result)
     {
-      _plugin.Logger.LogError("[SkyboxChanger] SetSkybox: EnvManager.SetSkybox returned false for slot={Slot} index='{Index}' material='{Material}'", player.Slot, index, skybox.Material);
-    }
-    else
-    {
-      _plugin.Logger.LogInformation("[SkyboxChanger] SetSkybox succeeded for slot={Slot} index='{Index}'", player.Slot, index);
+      _plugin.Logger.LogError("[SkyboxChanger] Failed to apply skybox '{Index}' (material '{Material}') for slot={Slot}", index, skybox.Material, player.Slot);
     }
     return result;
   }

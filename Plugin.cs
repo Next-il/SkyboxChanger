@@ -74,7 +74,6 @@ public class SkyboxChanger : BasePlugin, IPluginConfig<SkyboxConfig>
           };
           Config.Skyboxs.Add("", defaultSkybox);
           EnvManager.DefaultMaterial = skybox.Material;
-          Logger.LogInformation("[SkyboxChanger] Map default skybox material resolved as '{Material}' — custom entries must use this same path shape", skybox.Material);
         }
       }
       SpectatorManager.Initialize();
@@ -82,7 +81,6 @@ public class SkyboxChanger : BasePlugin, IPluginConfig<SkyboxConfig>
     RegisterListener<Listeners.OnMapEnd>(() =>
     {
       SpectatorManager.Shutdown();
-      Helper.MaterialApplyBroken = false;
       EnvManager.Shutdown();
       Service.Save();
       MemoryManager.RemoveCachedFactory();
@@ -117,7 +115,6 @@ public class SkyboxChanger : BasePlugin, IPluginConfig<SkyboxConfig>
             if (EnvManager.MapSpawnGroupHandle == 0)
             {
               EnvManager.MapSpawnGroupHandle = Helper.GetSpawnGroup(sky);
-              Logger.LogInformation("[SkyboxChanger] Captured map spawn group 0x{Group:X} from env_sky index={Index}", EnvManager.MapSpawnGroupHandle, (int)entity.Index);
             }
 
             if (!Config.Skyboxs.ContainsKey(""))
@@ -133,15 +130,7 @@ public class SkyboxChanger : BasePlugin, IPluginConfig<SkyboxConfig>
             // Never probe the material system here. FindOrCreateMaterialFromResource is a
             // *create* call and the index we have lands on the wrong function, which corrupts
             // the map's sky into the missing-texture material just by being called.
-            if (!Config.Enabled)
-            {
-              if (!Helper.MaterialApplyBroken)
-              {
-                Helper.MaterialApplyBroken = true;
-                Logger.LogWarning("[SkyboxChanger] Disabled in config (\"Enabled\": false), so the map's env_sky is left in place and the sky renders normally. Use css_skykv to find a sky material keyvalue this build honours, then set SkyMaterialKey and Enabled in the config.");
-              }
-              return;
-            }
+            if (!Config.Enabled) return;
 
             sky.Remove();
           }
@@ -279,14 +268,13 @@ public class SkyboxChanger : BasePlugin, IPluginConfig<SkyboxConfig>
 
   public void OnServerPrecacheResources(ResourceManifest manifest)
   {
-    Logger.LogInformation("[SkyboxChanger] OnServerPrecacheResources: precaching {Count} skybox material(s)", Config.Skyboxs.Count);
+    Logger.LogInformation("[SkyboxChanger] Precaching {Count} skybox material(s)", Config.Skyboxs.Count);
     foreach (var skybox in Config.Skyboxs)
     {
       if (skybox.Value.Name == "")
       {
         skybox.Value.Name = skybox.Key;
       }
-      Logger.LogInformation("[SkyboxChanger] OnServerPrecacheResources: adding resource key='{Key}' material='{Material}'", skybox.Key, skybox.Value.Material);
       manifest.AddResource(skybox.Value.Material);
     }
   }
@@ -314,155 +302,7 @@ public class SkyboxChanger : BasePlugin, IPluginConfig<SkyboxConfig>
       return;
     }
 
-    if (Helper.MaterialApplyBroken)
-    {
-      player.PrintToChat($"{Localizer["prefix"]} Skybox changing is unavailable on this game build.");
-      return;
-    }
-
     ShowMainMenu(player);
-  }
-
-  [ConsoleCommand("css_skytest")]
-  [CommandHelper(0, "Diagnose skybox material resolution", CommandUsage.CLIENT_AND_SERVER)]
-  [RequiresPermissions("@css/root")]
-  public unsafe void SkyTestCommand(CCSPlayerController? player, CommandInfo info)
-  {
-    void Reply(string msg)
-    {
-      info.ReplyToCommand(msg);
-      Logger.LogInformation("[SkyboxChanger] skytest: {Msg}", msg);
-    }
-
-    var arg = info.ArgCount > 1 ? info.GetArg(1) : "";
-
-    // No argument: bulk-test every configured material and report how many resolve.
-    if (arg == "")
-    {
-      int ok = 0;
-      var failed = new List<string>();
-      foreach (var kv in Config.Skyboxs)
-      {
-        if (Helper.FindMaterialByPath(kv.Value.Material, false) != 0) ok++;
-        else if (failed.Count < 8) failed.Add(kv.Key);
-      }
-      Reply($"resolved {ok}/{Config.Skyboxs.Count} configured materials");
-      if (failed.Count > 0) Reply($"first failures: {string.Join(", ", failed)}");
-      return;
-    }
-
-    var configured = GameData.GetOffset("IMaterialSystem_FindOrCreateMaterialFromResource");
-
-    // "offset <n> [material]": call one vtable index directly. Probing the wrong slot
-    // can hard-crash the server, so this deliberately does a single index per command.
-    if (arg == "offset")
-    {
-      if (info.ArgCount < 3 || !int.TryParse(info.GetArg(2), out var probe))
-      {
-        Reply($"usage: css_skytest offset <index> [material]   (configured index is {configured})");
-        return;
-      }
-      var mat = info.ArgCount > 3 ? info.GetArg(3) : "materials/skybox/sky_black.vmat";
-      Reply($"probing vtable index {probe} with '{mat}' ...");
-      var r = Helper.LookupMaterial(mat, probe, true, false);
-      Reply($"index {probe} -> {(r != 0 ? "NON-NULL 0x" + r.ToString("X") + "  <== candidate" : "null")}");
-      return;
-    }
-
-    // "path <material>": try the spellings the engine might actually want.
-    var target = arg == "path" && info.ArgCount > 2 ? info.GetArg(2) : arg;
-    var bare = target.EndsWith("_c") ? target.Substring(0, target.Length - 2) : target;
-    var noPrefix = bare.StartsWith("materials/") ? bare.Substring("materials/".Length) : "materials/" + bare;
-    var noExt = bare.EndsWith(".vmat") ? bare.Substring(0, bare.Length - 5) : bare;
-
-    var variants = new List<(string path, bool strip)>
-    {
-      (bare, true), (bare + "_c", false), (noPrefix, true), (noPrefix + "_c", false),
-      (noExt, true), (bare.ToLowerInvariant(), true),
-    };
-
-    foreach (var (path, strip) in variants.Distinct())
-    {
-      var ptr = Helper.LookupMaterial(path, configured, strip, false);
-      Reply($"'{path}'{(strip ? "" : " (raw)")} -> {(ptr != 0 ? "OK 0x" + ptr.ToString("X") : "NULL")}");
-    }
-  }
-
-  [ConsoleCommand("css_skyinfo")]
-  [CommandHelper(0, "Report sky entity state", CommandUsage.CLIENT_AND_SERVER)]
-  [RequiresPermissions("@css/root")]
-  public unsafe void SkyInfoCommand(CCSPlayerController? player, CommandInfo info)
-  {
-    void Reply(string msg)
-    {
-      info.ReplyToCommand("[SkyboxChanger] " + msg);
-      Logger.LogInformation("[SkyboxChanger] skyinfo: {Msg}", msg);
-    }
-
-    var cams = Utilities.FindAllEntitiesByDesignerName<CSkyCamera>("sky_camera").Count();
-    Reply($"Enabled={Config.Enabled}  SkyMaterialKey='{Config.SkyMaterialKey}'  MaterialApplyBroken={Helper.MaterialApplyBroken}");
-    Reply($"sky_camera count={cams}  ({(cams > 0 ? "spawn-group path available" : "NO 3d skybox: SpawnSkybox falls back to CreateEntityByName, which cannot carry a material")})");
-    Reply($"EnvManager.DefaultMaterial='{EnvManager.DefaultMaterial}'");
-    Reply($"MapSpawnGroupHandle=0x{EnvManager.MapSpawnGroupHandle:X}  ({(EnvManager.MapSpawnGroupHandle != 0 ? "keyvalue spawn path usable" : "NOT captured; spawning cannot carry a material")})");
-
-    var skies = Utilities.FindAllEntitiesByDesignerName<CEnvSky>("env_sky").ToList();
-    Reply($"env_sky entities: {skies.Count}");
-    foreach (var sky in skies)
-    {
-      if (sky == null || !sky.IsValid) continue;
-      string mat = "<unreadable>";
-      try
-      {
-        unsafe
-        {
-          nint mp = *(IntPtr*)sky.SkyMaterial.Value;
-          if (mp != 0)
-          {
-            var GetName = VirtualFunction.Create<IntPtr, string>(mp, 0);
-            mat = GetName.Invoke(mp);
-          }
-          else mat = "<null material>";
-        }
-      }
-      catch (Exception ex) { mat = "<error: " + ex.Message + ">"; }
-      Reply($"  index={(int)sky.Index} vscripts='{sky.PrivateVScripts}' brightness={sky.BrightnessScale} material='{mat}'");
-    }
-  }
-
-  [ConsoleCommand("css_skykv")]
-  [CommandHelper(0, "Find which keyvalue applies a sky material", CommandUsage.CLIENT_ONLY)]
-  [RequiresPermissions("@css/root")]
-  public void SkyKvCommand(CCSPlayerController player, CommandInfo info)
-  {
-    if (info.ArgCount < 3)
-    {
-      info.ReplyToCommand("[SkyboxChanger] usage: css_skykv <keyname> <material>");
-      info.ReplyToCommand("[SkyboxChanger] e.g. css_skykv skyname materials/skybox/sky_de_dust2.vmat");
-      return;
-    }
-
-    var key = info.GetArg(1);
-    var material = info.GetArg(2);
-
-    // Clear every env_sky, the map's included, so only the test entity can be rendering.
-    foreach (var s in Utilities.FindAllEntitiesByDesignerName<CEnvSky>("env_sky"))
-    {
-      if (s != null && s.IsValid) s.Remove();
-    }
-    EnvManager.SpawnedSkyboxes.Clear();
-
-    var slot = player.Slot;
-    Logger.LogInformation("[SkyboxChanger] css_skykv: testing key='{Key}' material='{Material}' for slot={Slot}", key, material, slot);
-
-    Server.NextFrame(() =>
-    {
-      var ok = Helper.SpawnSkyboxWithKeyValues(slot, material, key);
-      var p = Utilities.GetPlayerFromSlot(slot);
-      if (p != null && p.IsValid)
-      {
-        p.PrintToChat($"{Localizer["prefix"]} css_skykv {key}='{material}' -> {(ok ? "spawned, look up" : "spawn FAILED")}");
-      }
-    });
   }
 
   private void ShowMainMenu(CCSPlayerController player)
@@ -515,7 +355,6 @@ public class SkyboxChanger : BasePlugin, IPluginConfig<SkyboxConfig>
 
       skyboxMenu.AddMenuOption(skybox.Value.Name, (p, option) =>
       {
-        Logger.LogInformation("[SkyboxChanger] Menu: player slot={Slot} steamId={SteamId} selected skybox key='{Key}' name='{Name}'", p.Slot, p.SteamID, skybox.Key, skybox.Value.Name);
         var result = Service.SetSkybox(p, skybox.Key);
         if (result)
         {
@@ -523,7 +362,6 @@ public class SkyboxChanger : BasePlugin, IPluginConfig<SkyboxConfig>
         }
         else
         {
-          Logger.LogError("[SkyboxChanger] Menu: change.failed shown to player slot={Slot} for key='{Key}' — see prior log lines for the actual failure point", p.Slot, skybox.Key);
           p.PrintToChat($"{Localizer["prefix"]} {Localizer["change.failed"]}");
         }
         // _menuApi?.CloseMenu(p);

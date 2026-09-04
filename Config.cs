@@ -66,14 +66,9 @@ public class SkyboxConfig : BasePluginConfig
     public Dictionary<string, string>? MapDefault { get; set; } = new();
 
     /// <summary>Master switch. While false the plugin leaves the map's own env_sky alone
-    /// instead of replacing it with a per-player one it may not be able to give a material.</summary>
+    /// instead of replacing it with per-player ones.</summary>
     [JsonPropertyName("Enabled")]
-    public bool Enabled { get; set; } = false;
-
-    /// <summary>Entity keyvalue that carries the sky material at spawn. Use css_skykv to
-    /// find the one this game build honours.</summary>
-    [JsonPropertyName("SkyMaterialKey")]
-    public string SkyMaterialKey { get; set; } = "skyname";
+    public bool Enabled { get; set; } = true;
 
     [JsonPropertyName("MenuPermission")]
     public string MenuPermission { get; set; } = "@skybox/change";

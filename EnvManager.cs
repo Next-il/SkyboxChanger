@@ -1,9 +1,6 @@
 using System.Drawing;
-using System.Runtime.CompilerServices;
 using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
-using CounterStrikeSharp.API.Modules.Memory;
-using CounterStrikeSharp.API.Modules.Utils;
 
 namespace SkyboxChanger;
 
@@ -19,16 +16,21 @@ public class EnvManager
   /// before it is removed, because maps without a sky_camera have no other source for it and
   /// the keyvalue spawn path needs one.</summary>
   public uint MapSpawnGroupHandle { get; set; } = 0;
-  public unsafe void InitializeSkyboxForPlayer(CCSPlayerController player)
-  {
-    if (Helper.MaterialApplyBroken) return;
-    Skybox? skybox = SkyboxChanger.GetInstance().Service.GetPlayerSkybox(player);
-    float brightness = SkyboxChanger.GetInstance().Service.GetPlayerBrightness(player);
-    Color color = SkyboxChanger.GetInstance().Service.GetPlayerColor(player);
 
-    // Spawn straight into the player's saved material. Handing it to ChangeSkybox afterwards
-    // would route it through FindOrCreateMaterialFromResource, which returns null on this
-    // build; only brightness and tint are safe to apply in place.
+  public void InitializeSkyboxForPlayer(CCSPlayerController player)
+  {
+    var instance = SkyboxChanger.GetInstance();
+    if (!instance.Config.Enabled) return;
+
+    Skybox? skybox = instance.Service.GetPlayerSkybox(player);
+    float brightness = instance.Service.GetPlayerBrightness(player);
+    Color color = instance.Service.GetPlayerColor(player);
+
+    // A saved choice is only restored if the player still has the permission for it,
+    // so losing VIP puts them back on the map's own sky.
+    if (skybox != null && !Helper.CanUseSkybox(player, skybox)) skybox = null;
+
+    // The material can only be bound at spawn, so spawn straight into the right one.
     Helper.SpawnSkybox(player.Slot, CubemapFogPointedSkyName ?? "", skybox?.Material ?? DefaultMaterial);
 
     // after 2 tick avoid conflict with SpawnSkybox initialization
@@ -36,24 +38,14 @@ public class EnvManager
     {
       Server.NextFrame(() =>
       {
-        Helper.ChangeSkybox(player.Slot, null, brightness, color.ToArgb() == int.MaxValue ? null : color);
+        Helper.ChangeSkybox(player.Slot, brightness, color.ToArgb() == int.MaxValue ? null : color);
       });
     });
   }
 
-  public unsafe void OnPlayerLeave(int slot)
+  public void OnPlayerLeave(int slot)
   {
-    if (!SpawnedSkyboxes.ContainsKey(slot)) return;
-    var index = SpawnedSkyboxes[slot];
-    CEnvSky sky = Utilities.GetEntityFromIndex<CEnvSky>(index)!;
-    nint ptr = Helper.FindMaterialByPath("materials/notexist.vmat", false);
-    if (ptr != 0)
-    {
-      Unsafe.Write((void*)sky.SkyMaterial.Handle, ptr);
-      Unsafe.Write((void*)sky.SkyMaterialLightingOnly.Handle, ptr);
-    }
-    SpawnedSkyboxes.Remove(slot);
-    sky.Remove();
+    Helper.RemovePlayerSkybox(slot);
   }
 
   public void Shutdown()
@@ -72,13 +64,14 @@ public class EnvManager
 
   public void SetBrightness(int slot, float value)
   {
-    Helper.ChangeSkybox(slot, null, value, null);
+    Helper.ChangeSkybox(slot, value, null);
   }
 
   public void SetTintColor(int slot, Color color)
   {
-    Helper.ChangeSkybox(slot, null, null, color);
+    Helper.ChangeSkybox(slot, null, color);
   }
+
   public void OnCheckTransmit(CCheckTransmitInfoList infoList)
   {
     foreach ((CCheckTransmitInfo info, CCSPlayerController? player) in infoList)
