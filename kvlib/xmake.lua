@@ -14,7 +14,6 @@ target("windows")
     add_files({
         SDK_PATH.."/tier1/convar.cpp",
         SDK_PATH.."/public/tier0/memoverride.cpp",
-        SDK_PATH.."/tier1/generichash.cpp",
         SDK_PATH.."/entity2/entitysystem.cpp",
         SDK_PATH.."/entity2/entityidentity.cpp",
         SDK_PATH.."/entity2/entitykeyvalues.cpp",
@@ -24,7 +23,6 @@ target("windows")
     add_links({
         SDK_PATH.."/lib/public/win64/2015/libprotobuf.lib",
         SDK_PATH.."/lib/public/win64/tier0.lib",
-        SDK_PATH.."/lib/public/win64/tier1.lib",
         SDK_PATH.."/lib/public/win64/interfaces.lib",
         SDK_PATH.."/lib/public/win64/mathlib.lib",
     })
@@ -85,7 +83,6 @@ target("linux")
     add_files({
         SDK_PATH.."/tier1/convar.cpp",
         SDK_PATH.."/public/tier0/memoverride.cpp",
-        SDK_PATH.."/tier1/generichash.cpp",
         SDK_PATH.."/entity2/entitysystem.cpp",
         SDK_PATH.."/entity2/entityidentity.cpp",
         SDK_PATH.."/entity2/entitykeyvalues.cpp",
@@ -95,7 +92,6 @@ target("linux")
     add_links({
         SDK_PATH.."/lib/linux64/release/libprotobuf.a",
         SDK_PATH.."/lib/linux64/libtier0.so",
-        SDK_PATH.."/lib/linux64/tier1.a",
         SDK_PATH.."/lib/linux64/interfaces.a",
         SDK_PATH.."/lib/linux64/mathlib.a",
     })
