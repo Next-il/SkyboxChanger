@@ -22,19 +22,21 @@ public class EnvManager
   public unsafe void InitializeSkyboxForPlayer(CCSPlayerController player)
   {
     if (Helper.MaterialApplyBroken) return;
-    Helper.SpawnSkybox(player.Slot, CubemapFogPointedSkyName ?? "", DefaultMaterial);
-
     Skybox? skybox = SkyboxChanger.GetInstance().Service.GetPlayerSkybox(player);
     float brightness = SkyboxChanger.GetInstance().Service.GetPlayerBrightness(player);
     Color color = SkyboxChanger.GetInstance().Service.GetPlayerColor(player);
 
+    // Spawn straight into the player's saved material. Handing it to ChangeSkybox afterwards
+    // would route it through FindOrCreateMaterialFromResource, which returns null on this
+    // build; only brightness and tint are safe to apply in place.
+    Helper.SpawnSkybox(player.Slot, CubemapFogPointedSkyName ?? "", skybox?.Material ?? DefaultMaterial);
 
     // after 2 tick avoid conflict with SpawnSkybox initialization
     Server.NextFrame(() =>
     {
       Server.NextFrame(() =>
       {
-        Helper.ChangeSkybox(player.Slot, skybox, brightness, color);
+        Helper.ChangeSkybox(player.Slot, null, brightness, color.ToArgb() == int.MaxValue ? null : color);
       });
     });
   }
