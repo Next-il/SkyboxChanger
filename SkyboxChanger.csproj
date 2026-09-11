@@ -1,8 +1,9 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <!-- net10.0 and 1.0.373 are PanoramaManager's floor: the dll is built against that
-         API version and targets that runtime. -->
+    <!-- net10.0 is PanoramaManager's floor, and the SERVER needs CounterStrikeSharp 1.0.374 or
+         newer: the library drives the HUD entity through the CCSCustomHudLayout API that release
+         added. The pin below only decides what this plugin compiles against, so it can stay. -->
     <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>SkyboxChanger</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
