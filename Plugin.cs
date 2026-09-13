@@ -32,7 +32,7 @@ public class SkyboxChanger : BasePlugin, IPluginConfig<SkyboxConfig>
   public required SpectatorSkyboxManager SpectatorManager { get; set; }
 
   // MenuManager capability. Optional now: the Panorama panel is the primary UI and these menus
-  // are the fallback for a server without the Panorama natives.
+  // are the fallback for when the panel cannot open.
   private IMenuApi? _menuApi;
   private readonly PluginCapability<IMenuApi?> _menuCapability = new("menu:nfcore");
 
@@ -197,7 +197,7 @@ public class SkyboxChanger : BasePlugin, IPluginConfig<SkyboxConfig>
       // plugin; the Panorama panel is the primary UI now, so the only thing missing is the fallback
       // for servers that cannot run the panel.
       Logger.LogWarning(
-        "[SkyboxChanger] MenuManager was not found. The Panorama panel still works; there is no chat-menu fallback for servers without the Panorama natives.");
+        "[SkyboxChanger] MenuManager was not found. The Panorama panel still works; there is no chat-menu fallback for when the panel cannot open.");
     }
 
     InitPanel();
@@ -371,8 +371,8 @@ public class SkyboxChanger : BasePlugin, IPluginConfig<SkyboxConfig>
     }
 
     // The panel first, the chat menus as the fallback. Open returns false when the player cannot be
-    // shown a card at all - no per-player text natives, or the render threw - which is exactly the
-    // case where the old menus are still the better answer.
+    // shown a card at all, which is exactly the case where the old menus are still the better
+    // answer.
     if (_skyboxPanel?.Open(player) == true) return;
 
     if (_menuApi == null)

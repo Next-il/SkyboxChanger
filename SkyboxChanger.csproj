@@ -1,9 +1,9 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <!-- net10.0 is PanoramaManager's floor, and the SERVER needs CounterStrikeSharp 1.0.374 or
-         newer: the library drives the HUD entity through the CCSCustomHudLayout API that release
-         added. The pin below only decides what this plugin compiles against, so it can stay. -->
+    <!-- net10.0 and CounterStrikeSharp.API 1.0.374 are PanoramaManager's floor. The package drives the
+         HUD entity through the CCSCustomHudLayout API that release added and declares the dependency,
+         so a lower pin below fails restore with NU1605 - and the server needs 1.0.374 as well. -->
     <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>SkyboxChanger</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -17,18 +17,16 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="CounterStrikeSharp.API" Version="1.0.373">
+    <PackageReference Include="CounterStrikeSharp.API" Version="1.0.374">
       <IncludeAssets>compile</IncludeAssets>
     </PackageReference>
     <Reference Include="MenuManagerApi"><HintPath>MenuManagerApi.dll</HintPath></Reference>
 
-    <!-- Copied next to the plugin (no Private=false): each CounterStrikeSharp plugin loads through
-         a context that probes its own folder, and each gets its own Panorama statics. A second copy
-         of a SHARED api dll next to the plugin is what breaks capability casts - this one is not
-         shared, so it belongs here. -->
-    <Reference Include="PanoramaManager">
-      <HintPath>lib\PanoramaManager.dll</HintPath>
-    </Reference>
+    <!-- From nuget.org, copied next to the plugin by CopyPanoramaManager below: each CounterStrikeSharp
+         plugin loads through a context that probes its own folder, and each gets its own Panorama
+         statics. A second copy of a SHARED api dll next to the plugin is what breaks capability casts -
+         this one is not shared, so it belongs here. -->
+    <PackageReference Include="PanoramaManager" Version="0.4.0" />
     <PackageReference Include="Dapper" Version="2.1.35" />
     <PackageReference Include="MySQLConnector" Version="2.4.0" />
   </ItemGroup>
@@ -44,5 +42,16 @@
     <Copy SourceFiles="$(NuGetPackageRoot)\dapper\2.1.35\lib\net7.0\Dapper.dll" DestinationFolder="$(OutputPath)" />
     <Copy SourceFiles="$(NuGetPackageRoot)\mysqlconnector\2.4.0\lib\net8.0\MySqlConnector.dll" DestinationFolder="$(OutputPath)" />
 	</Target>
+
+  <!-- CopyLocalLockFileAssemblies is off, so package dlls are not copied beside the plugin on build -
+       Dapper and MySqlConnector are copied by hand in PostBuild above. This copies PanoramaManager's and
+       nothing else; turning the property on would also bring MySqlConnector's Microsoft.Extensions
+       abstractions, which the host already provides. -->
+  <Target Name="CopyPanoramaManager" AfterTargets="ResolveLockFileCopyLocalFiles">
+    <ItemGroup>
+      <ReferenceCopyLocalPaths Include="@(RuntimeCopyLocalItems)"
+                               Condition="'%(RuntimeCopyLocalItems.NuGetPackageId)' == 'PanoramaManager'" />
+    </ItemGroup>
+  </Target>
 
 </Project>
